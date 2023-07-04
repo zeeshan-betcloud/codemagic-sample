@@ -1,0 +1,66 @@
+workflows:
+  unity-steam-deploy:
+    name: Unity Steam Deploy
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+        # Add the group environment variables in Codemagic UI (either in Application/Team variables) - https://docs.codemagic.io/variables/environment-variable-groups/
+        - unity_credentials # <-- (Includes UNITY_SERIAL, UNITY_EMAIL, UNITY_PASSWORD)
+        - steam # <-- (Includes STEAM_USERNAME, STEAM_PASSWORD, CONFIG_FILE, SSFN_FILE, SSFN_FILE_NAME)
+      vars:
+        BUILD_SCRIPT: BuildWin64
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: "main"
+          include: true
+          source: true
+    scripts:
+      - name: Activate License
+        script: |
+          $UNITY_HOME/Contents/MacOS/Unity -batchmode \
+            -quit \
+            -logFile \
+            -serial ${UNITY_SERIAL?} \
+            -username ${UNITY_EMAIL?} \
+            -password ${UNITY_PASSWORD?}
+      - name: Build
+        script: |
+          $UNITY_HOME/Contents/MacOS/Unity -batchmode \
+            -quit \
+            -logFile \
+            -projectPath ./HelloWorldProject \
+            -executeMethod BuildScript.$BUILD_SCRIPT \
+            -nographics
+      - name: Zip Build
+        script: zip -r helloworld_win64.zip win64
+      - name: Install steamcmd
+        script: |
+          mkdir ~/Steam
+          curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz" | tar zxvf - -C ~/Steam
+      - name: decode Sentry files
+        script: |
+          echo $CONFIG_FILE | base64 --decode > steam/config.vdf
+          echo $SSFN_FILE | base64 --decode > steam/$SSFN_FILE_NAME
+      - name: Copy Sentry Files
+        script: |
+          mkdir -p ~/Library/Application\ Support/Steam/config
+          cp ~/clone/steam/$SSFN_FILE_NAME ~/Library/Application\ Support/Steam
+          cp ~/clone/steam/config.vdf ~/Library/Application\ Support/Steam/config
+      - name: Upload Build to Steam
+        script: |
+          ~/Steam/steamcmd.sh \
+            +login $STEAM_USERNAME $STEAM_PASSWORD \
+            +run_app_build ~/clone/steam/app_build.vdf \
+            +quit
+    artifacts:
+      - helloworld_win64.zip
+    publishing:
+      scripts:
+        - name: Deactivate License
+          script: | 
+            /Applications/Unity\ Hub.app/Contents/Frameworks/UnityLicensingClient_V1.app/Contents/MacOS/Unity.Licensing.Client \
+              --return-ulf \
+              --username ${UNITY_EMAIL?} \
+              --password ${UNITY_PASSWORD?}

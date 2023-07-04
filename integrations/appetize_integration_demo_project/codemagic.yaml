@@ -1,0 +1,91 @@
+workflows:
+  appetize-android-workflow:
+    name: Appetize Android Workflow
+    instance_type: linux_x2
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+        - $CM_BUILD_DIR/build
+    environment:
+      groups:
+        - appetize_credentials # <-- Includes (API_TOKEN, APP_PUBLIC_KEY)
+      vars:
+        PACKAGE_NAME: "io.codemagic.appetize" # <-- Put your package name here
+      android_signing:
+        - codemagic_demo
+      flutter: stable
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Get Flutter packages
+        script: |
+          flutter packages pub get
+      - name: Build apk with Flutter
+        script: |
+          flutter build apk --release
+    artifacts:
+      - build/**/outputs/apk/**/*.apk
+    publishing:
+      scripts:
+        - name: Upload to appetize
+          script: |
+            artifactPath="$CM_BUILD_OUTPUT_DIR/app-release.apk"
+            echo $(curl --location --request POST "https://$API_TOKEN@api.appetize.io/v1/apps/$APP_PUBLIC_KEY" --form "file=@$artifactPath")
+
+
+  appetize-ios-workflow:
+    name: Appetize iOS Workflow
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    integrations:
+      app_store_connect: codemagic
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: "*"
+          include: true
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: io.codemagic.sample.appetize
+      groups:
+        - appetize # Includes (API_TOKEN, APP_PUBLIC_KEY)
+      vars:
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+    scripts:
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      - name: Get Flutter packages & Build
+        script: |
+          flutter packages pub get
+          flutter build ios
+        ignore_failure: true
+      - name: Build unsigned .app
+        script: |
+          xcodebuild -workspace "ios/$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration "Debug" \
+            -sdk iphonesimulator \
+            -derivedDataPath ios/output
+
+          # If you are building a project instead of a workspace:  
+          # xcodebuild -project "ios/Runner.xcodeproj" \
+          #   -scheme "$XCODE_SCHEME" \
+          #   -configuration "Debug" \
+          #   -sdk iphonesimulator \
+          #   -derivedDataPath ios/output
+      - name: Create a .zip archive
+        script: |
+          cd ios/output/Build/Products/Debug-iphonesimulator
+          zip -r ios_app.zip $XCODE_SCHEME.app
+    artifacts:
+      - ios/output/Build/Products/Debug-iphonesimulator/*.zip
+    publishing:
+      scripts:
+        - name: Publish App to Appetize
+          script: |
+            zipPath="ios/output/Build/Products/Debug-iphonesimulator/ios_app.zip"
+            echo $(curl --location --request POST "https://$API_TOKEN@api.appetize.io/v1/apps/$APP_PUBLIC_KEY" --form "file=@$zipPath")

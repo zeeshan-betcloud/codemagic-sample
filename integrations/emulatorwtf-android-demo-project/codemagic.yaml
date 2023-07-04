@@ -1,0 +1,40 @@
+workflows:
+  integration-emulatorwtf-native-android:
+    name: Integration emulator.wtf Native Android
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+      # Add the group environment variables in Codemagic UI (either in Application/Team variables) - https://docs.codemagic.io/variables/environment-variable-groups/
+        - emulatorwtf # <-- (Includes EW_API_TOKEN)
+      vars:
+        # Set up paths to application binary and test package 
+        EW_APK_PATH: "$CM_BUILD_DIR/app/build/outputs/apk/debug/app-debug.apk"
+        EW_TEST_APK_PATH: "$CM_BUILD_DIR/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+      node: latest
+      xcode: latest
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: develop
+          include: true
+          source: true
+    scripts:
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+      - name: Build Android debug APK
+        script: |
+          ./gradlew assembleDebug
+      - name: Build Android test APK
+        script: |
+          ./gradlew assembleAndroidTest
+      - name: Run tests with emulator.wtf
+        script: |
+          ew-cli --app $EW_APK_PATH --test $EW_TEST_APK_PATK
+        test_report: results/**/*.xml
+    artifacts:
+        - app/build/outputs/**/*.apk
+        - results/**/logcat.txt

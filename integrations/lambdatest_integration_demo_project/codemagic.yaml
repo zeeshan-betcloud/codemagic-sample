@@ -1,0 +1,144 @@
+workflows:
+  react-native-android:
+    name: Integrations LambdaTest React Native Android
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      android_signing:
+        - keystore_reference
+      groups:
+        - google_play # <-- (Includes GCLOUD_SERVICE_ACCOUNT_CREDENTIALS <-- Put your google-services.json)
+        - lambdatest_credentials # <-- Contains username and accesstoken
+      vars:
+        PACKAGE_NAME: "YOUR_PACKAGE_NAME" # <-- Put your package name here e.g. com.domain.myapp
+      node: latest
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: develop
+          include: true
+          source: true
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"         
+      - name: Build Android release
+        script: |
+          export LATEST_GOOGLE_PLAY_BUILD_NUMBER=$(($(google-play get-latest-build-number --package-name "$PACKAGE_NAME") + 1))
+          cd android && ./gradlew assembleRelease
+      - name: Submitting app to LambdaTest
+        script: |
+            curl --location \
+              --request POST "https://manual-api.lambdatest.com/app/upload/realDevice" \
+              --header "Authorization: Basic $LAMBDATEST" \
+              --form "name='lambda1'" \
+              --form "appFile=@/path/to/file"
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+    publishing:
+      # See the following link for details about email publishing - https://docs.codemagic.io/publishing-yaml/distribution/#email
+      email:
+        recipients:
+          - user_1@example.com
+          - user_2@example.com
+        notify:
+          success: true     # To not receive a notification when a build succeeds
+          failure: false    # To not receive a notification when a build fails
+      slack: 
+        # See the following link about how to connect your Slack account - https://docs.codemagic.io/publishing-yaml/distribution/#slack
+        channel: '#channel-name'
+        notify_on_build_start: true   # To receive a notification when a build starts
+        notify:
+          success: true               # To not receive a notification when a build succeeds
+          failure: false              # To not receive a notification when a build fails
+      google_play:
+        # See the following link for information regarding publishing to Google Play - https://docs.codemagic.io/publishing-yaml/distribution/#google-play
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: alpha   # Any default or custom track that is not in ‘draft’ status
+  
+  react-native-ios:
+      name: Integrations LambdaTest React Native iOS
+      max_build_duration: 120
+      instance_type: mac_mini_m1
+      environment:
+        ios_signing:
+          distribution_type: app_store
+          bundle_identifier: io.codemagic.sample.labdatest
+        groups:
+          - lambdatest_credentials # <-- Contains username and accesstoken
+        vars:
+          XCODE_WORKSPACE: "ios/YOUR_WORKSPACE_NAME.xcworkspace" # <-- Put the name of your Xcode workspace here
+          XCODE_SCHEME: "YOUR_SCHEME_NAME" # <-- Put the name of your Xcode scheme here
+          APP_STORE_APP_ID: 1555555551 # <-- Put the app id number here. This is found in App Store Connect > App > General > App Information
+        node: latest
+        xcode: latest
+        cocoapods: default
+      triggering:
+        events:
+          - push
+          - tag
+          - pull_request
+        branch_patterns:
+          - pattern: develop
+            include: true
+            source: true
+      scripts:
+        - name: Install npm dependencies
+          script: |
+            npm install
+        - name: Install CocoaPods dependencies
+          script: |
+            cd ios && pod install
+        - name: Increment build number
+          script: |
+            cd $CM_BUILD_DIR/ios
+            agvtool new-version -all $(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID") + 1))
+        - name: Set up code signing settings on Xcode project
+          script: |
+            xcode-project use-profiles --warn-only
+        - name: Build ipa for distribution
+          script: |
+            xcode-project build-ipa \
+              --workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+              --scheme "$XCODE_SCHEME" 
+        - name: Submitting app to LambdaTest
+          script: |
+              curl --location \
+                --request POST "https://manual-api.lambdatest.com/app/upload/realDevice" \
+                --header "Authorization: Basic $LAMBDATEST" \
+                --form "name='lambda1'" \
+                --form "appFile=@/path/to/file"
+      artifacts:
+        - build/ios/ipa/*.ipa
+        - /tmp/xcodebuild_logs/*.log
+        - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+        - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      publishing:
+        email:
+          recipients:
+            - user_1@example.com
+            - user_2@example.com
+          notify:
+            success: true
+            failure: false
+
+        app_store_connect:
+          auth: integration
+
+          # Configuration related to TestFlight (optional)
+          # Note: This action is performed during post-processing.
+          submit_to_testflight: true
+          beta_groups: # Specify the names of beta tester groups that will get access to the build once it has passed beta review.
+            - group name 1
+            - group name 2
+
+          # Configuration related to App Store (optional)
+          # Note: This action is performed during post-processing.
+          submit_to_app_store: false
+

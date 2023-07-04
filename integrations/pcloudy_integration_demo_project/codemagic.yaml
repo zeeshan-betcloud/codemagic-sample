@@ -1,0 +1,74 @@
+workflows:
+  react-native-android:
+    name: Integrations pCloudy React Native Android
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      android_signing:
+        - keystore_reference
+      groups:
+        - google_play # <-- (Includes GCLOUD_SERVICE_ACCOUNT_CREDENTIALS <-- Put your google-services.json)
+        - pcloudy_credentials # <-- ($PCLOUDY_USERNAME:$PCLOUDY_API_TOKEN envrionment variables)
+      vars:
+        PACKAGE_NAME: "YOUR_PACKAGE_NAME" # <-- Put your package name here e.g. com.domain.myapp
+      node: v16.11.1
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: develop
+          include: true
+          source: true
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"        
+      - name: Build Android release
+        script: |
+          export LATEST_GOOGLE_PLAY_BUILD_NUMBER=$(($(google-play get-latest-build-number --package-name "$PACKAGE_NAME") + 1))
+          cd android && ./gradlew assembleRelease
+      - name: Build Android Test
+        script: |
+          cd android && ./gradlew assembleAndroidTest
+      - name: pCloudy Upload
+        script: | 
+          APP_TOKEN=$(curl -u "$PCLOUDY_USERNAME:$PCLOUDY_API_TOKEN" https://device.pcloudy.com/api/access | jq -r '.[].token') 
+  
+          curl -X POST \
+            -F "file=@android/app/build/outputs/apk/release/app-release.apk" \
+            -F "source_type=raw" \
+            -F "token=$APP_TOKEN" \
+            -F "filter=all" https://device.pcloudy.com/api/upload_file
+
+          curl -X POST \
+          -F "file=@android/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk" \
+          -F "source_type=raw" \
+          -F "token=$APP_TOKEN" \
+          -F "filter=all" https://device.pcloudy.com/api/upload_file
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+    publishing:
+      # See the following link for details about email publishing - https://docs.codemagic.io/publishing-yaml/distribution/#email
+      email:
+        recipients:
+          - user_1@example.com
+          - user_2@example.com
+        notify:
+          success: true     # To not receive a notification when a build succeeds
+          failure: false    # To not receive a notification when a build fails
+      slack: 
+        # See the following link about how to connect your Slack account - https://docs.codemagic.io/publishing-yaml/distribution/#slack
+        channel: '#channel-name'
+        notify_on_build_start: true   # To receive a notification when a build starts
+        notify:
+          success: true               # To not receive a notification when a build succeeds
+          failure: false              # To not receive a notification when a build fails
+      google_play:
+        # See the following link for information regarding publishing to Google Play - https://docs.codemagic.io/publishing-yaml/distribution/#google-play
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: alpha   # Any default or custom track that is not in ‘draft’ status

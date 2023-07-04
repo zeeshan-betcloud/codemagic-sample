@@ -1,0 +1,51 @@
+workflows:
+  ionic-capacitor-capgo-android-workflow:
+    name: Integration Capgo Ionic Capacitor Android
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      android_signing:
+        - keystore_reference
+      groups:
+        - capgo_crendentials # <-- ( Includes CAPGO login token)
+      node: latest
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: develop
+          include: true
+          source: true
+    scripts:
+      - name: Install npm dependencies for Ionic project
+        script: |
+          npm install
+          npm install @capgo/capacitor-updater
+          npx @capgo/cli login $CAPGO_TOKEN
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Update dependencies and copy web assets to native project
+        script: |
+          # npx cap copy # <- use this is you don't need to update native dependencies
+          npx cap sync # <- update native dependencies and copy web assets to native project
+      - name: Build Android release
+        script: |
+          cd android
+          ./gradlew assembleRelease
+      - name: Capgo
+        script: |
+          npx @capgo/cli add 
+          npx @capgo/cli upload
+    artifacts:
+        - android/app/build/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - user_one@example.com
+          - user_two@example.com
+        notify:
+          success: true     # To not receive a notification when a build succeeds
+          failure: false     # To not receive a notification when a build fails

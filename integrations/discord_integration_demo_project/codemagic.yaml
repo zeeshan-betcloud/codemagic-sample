@@ -1,0 +1,64 @@
+workflows:
+  default-workflow:
+    name: Default Workflow
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    environment:
+      android_signing:
+        - keystore_reference
+      groups:
+        - discord_credentials 
+      flutter: stable
+      cocoapods: default
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true 
+          source: true
+    scripts:        
+      - name: set up local properties
+        script: |
+          echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Get packages and build debug apk
+        script: |
+          flutter packages pub get && flutter build apk --debug
+      - name: Create a changelog
+        script: |
+            if [[ -z ${CM_PREVIOUS_COMMIT} ]]
+            then
+              echo "No finished builds found to generate changelog" | tee release_notes.txt
+            else
+              echo "$(git-changelog generate --previous-commit $CM_PREVIOUS_COMMIT)" | tee release_notes.txt
+            fi      
+    artifacts:
+      - build/**/outputs/**/*.apk
+      - build/**/outputs/**/*.aab
+      - build/**/outputs/**/mapping.txt
+      - flutter_drive.log
+    publishing:
+      scripts:
+      - name: Discord notification
+        script: |
+          set -ex
+
+          APP_LINK=$(echo $CM_ARTIFACT_LINKS | jq -r '.[] | select(.name=="app.apk") | .url')
+        
+          # Get first 7 digits of commit number
+          COMMIT=$(echo "${CM_COMMIT}" | sed 's/^\(........\).*/\1/;q')
+
+          # Get commit message
+          COMMIT_MESSAGE=$(git log --format=%B -n 1 $CM_COMMIT)
+
+          # Get commit author
+          AUTHOR=$(git show -s --format='%ae' $CM_COMMIT)
+
+          curl -H "Content-Type: multipart/form-data" \
+          -F 'payload_json={"username" : "codemagic-bot", "content": "**Commit:** `'"$COMMIT"'`\n\n**Commit message:** '"$COMMIT_MESSAGE"'\n\n**Branch:** '"$CM_BRANCH"'\n\n**Author:** '"$AUTHOR"'\n\n**Artifacts: **\n\n'"$APP_LINK"'\n\n"}' \
+          -F "file1=@release_notes.txt" \
+          $WEBHOOK_URL
+        
+      email:
+        recipients:
+          - user1@example.com
