@@ -1,7 +1,11 @@
-workflows:  
+workflows:
+  my-workflow:
+    scripts:
+      - name: say hello
+        script: echo "Hello Codemagician!"
   ios-fastlane:
     name: iOS Fastlane
-    instance_type: mac_pro
+    instance_type: mac_mini_m1
     working_directory: integrations/fastlane-integration-demo-project
     environment:
       groups:
@@ -16,7 +20,7 @@ workflows:
   react-native-ios:
     name: React Native iOS
     max_build_duration: 120
-    instance_type: mac_pro
+    instance_type: mac_mini_m1
     working_directory: react-native/react-native-demo-project
     environment:
       groups:
